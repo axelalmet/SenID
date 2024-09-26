@@ -1,0 +1,11 @@
+README.md
+setup.cfg
+setup.py
+SenD.egg-info/PKG-INFO
+SenD.egg-info/SOURCES.txt
+SenD.egg-info/dependency_links.txt
+SenD.egg-info/requires.txt
+SenD.egg-info/top_level.txt
+tests/__init__.py
+tests/test_clustering.py
+tests/test_communication.py
