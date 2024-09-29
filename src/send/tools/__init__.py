@@ -1,3 +1,3 @@
-from ._communication import calculate_interaction_scores
+from ._communication import calculate_interaction_scores, calculate_interaction_scores_for_lr_pair
 from ._clustering import generate_snc_clusters
 from ._markers import score_marker_genes

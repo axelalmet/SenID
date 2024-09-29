@@ -2,19 +2,23 @@ import numpy as np
 from anndata import AnnData
 import pandas as pd
 from itertools import product
+import os
 
 from collections.abc import Iterable as IterableClass
 from typing import Dict, Literal, Optional, Sequence, Union, Callable, List
 
 def calculate_interaction_scores(adata: AnnData,
-                                 group_label: str,
+                                 sender_label: str,
+                                 receiver_label: Optional[str] = None,
+                                 output_key: str = 'SenD_output',
                                  model: str = 'mouse',
                                  use_highly_variable: bool = False,
                                  highly_variable_key: Optional[str] = None,
-                                 highly_variable_stringency: Optional[str] = 'stringent_both',
+                                 stringency: Optional[str] = 'stringent_neither',
                                  min_proportion: float = 0.1,
                                  test_permutation: bool = False,
-                                 n_perms: int = 100) -> pd.DataFrame:
+                                 n_perms: int = 100,
+                                 return_df: bool = False) -> pd.DataFrame | None:
     """ Calculate all interaction scores with respect to a specified lbel.
 
     Parameters
@@ -43,6 +47,9 @@ def calculate_interaction_scores(adata: AnnData,
         DataFrame containing the interaction scores across all ligand-receptor interaction pairs and potentially interacting groups
     """
 
+    data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
+
+
     if model not in ['human', 'mouse']:
         raise ValueError("Model must be either 'mouse' or 'human'. Working on expanding to more organisms.")
     
@@ -53,10 +60,13 @@ def calculate_interaction_scores(adata: AnnData,
         if highly_variable_key not in adata.var.keys():
             raise ValueError(f"Key {highly_variable_key} not found in adata.var.keys().")   
     
-        if highly_variable_stringency not in ['both', 'ligand', 'receptor', 'neither']:
-            raise ValueError("highly_variable_stringency must be either 'both', 'ligand', 'receptor', or 'neither'.")
+        if stringency not in ['both', 'ligand', 'receptor', 'neither']:
+            raise ValueError("stringency must be either 'both', 'ligand', 'receptor', or 'neither'.")
         
-    all_lr_interactions = pd.read_csv(f'data/{model}_lr_pairs_and_tfs.csv', index_col=0)
+    data_path = os.path.join(data_dir, f'{model}_lr_pairs_and_tfs.csv.gz')
+    all_lr_interactions = pd.read_csv(data_path, index_col=0)
+
+    hvgs = adata.var_names[adata.var[highly_variable_key]]
 
     lr_pairs = {}
     for i, row in all_lr_interactions.iterrows():
@@ -75,7 +85,7 @@ def calculate_interaction_scores(adata: AnnData,
 
         downstream_tfs_for_pair = list(set(lig_tfs + rec_tfs))
 
-        # Filter out any TFs not in the dataset and not in HVGs
+        # Filter out any TFs not in the dataset
         downstream_tfs_for_pair = [tf for tf in downstream_tfs_for_pair if tf in adata.var_names]
 
         use_interaction = False
@@ -85,24 +95,24 @@ def calculate_interaction_scores(adata: AnnData,
 
             if use_highly_variable:
 
-                downstream_tfs_for_pair = [tf for tf in downstream_tfs_for_pair if tf in adata.var_names[adata.var[highly_variable_key]]]
+                downstream_tfs_for_pair = [tf for tf in downstream_tfs_for_pair if tf in hvgs]
 
                 # If we require all ligand sub-units and all receptor sub-units to be highly variable
-                if highly_variable_stringency == 'both':
-                    if set(ligand_symbol).issubset(set(adata.var_names[adata.var[highly_variable_key]]))\
-                        and set(receptor_symbol).issubset(set(adata.var_names[adata.var[highly_variable_key]])):
+                if stringency == 'both':
+                    if set(ligand_symbol).issubset(set(hvgs))\
+                        and set(receptor_symbol).issubset(set(hvgs)):
                         use_interaction = True
 
                 # If we only require that all ligand sub-units are highly variable
-                elif highly_variable_stringency == 'ligand':
-                    if set(ligand_symbol).issubset(set(adata.var_names[adata.var[highly_variable_key]]))\
-                        and bool(set(receptor_symbol) & set(set(adata.var_names[adata.var[highly_variable_key]]))):
+                elif stringency == 'ligand':
+                    if set(ligand_symbol).issubset(set(hvgs))\
+                        and bool(set(receptor_symbol) & set(set(hvgs))):
                         use_interaction = True
                     
                 # If we only require that all receptor sub-units are highly variable
-                elif highly_variable_stringency == 'receptor':
-                    if bool(set(ligand_symbol) & set(set(adata.var_names[adata.var[highly_variable_key]])))\
-                        and set(receptor_symbol).issubset(set(adata.var_names[adata.var[highly_variable_key]])):
+                elif stringency == 'receptor':
+                    if bool(set(ligand_symbol) & set(set(hvgs)))\
+                        and set(receptor_symbol).issubset(set(hvgs)):
                         use_interaction = True
 
                 # If we only require that at least one ligand sub-unit and at least one-receptor subnit are in HVGs
@@ -126,36 +136,38 @@ def calculate_interaction_scores(adata: AnnData,
         downstream_tfs = lr_pairs[pair]['tf']
         pathway = lr_pairs[pair]['pathway_name']
 
-        ligand_expression = adata[:, ligand].X.toarray()
-        receptor_expression = adata[:, receptor].X.toarray()
-
         if len(downstream_tfs) != 0:
 
             interaction_score = calculate_interaction_scores_for_lr_pair(adata,
-                                                                        group_label,
-                                                                        ligand,
-                                                                        receptor,
-                                                                        downstream_tfs,
-                                                                        pathway,
-                                                                        min_proportion,
-                                                                        test_permutation,
-                                                                        n_perms)
+                                                                        ligand=ligand,
+                                                                        receptor=receptor,
+                                                                        sender_label=sender_label,
+                                                                        receiver_label=receiver_label,
+                                                                        downstream_tf=downstream_tfs,
+                                                                        pathway=pathway,
+                                                                        min_proportion=min_proportion,
+                                                                        test_permutation=test_permutation,
+                                                                        n_perms=n_perms)
             
         else:
             interaction_score = calculate_interaction_scores_for_lr_pair(adata,
-                                                                        group_label,
-                                                                        ligand,
-                                                                        receptor,
-                                                                        pathway,
-                                                                        min_proportion,
-                                                                        test_permutation,
-                                                                        n_perms)
+                                                                        ligand=ligand,
+                                                                        receptor=receptor,
+                                                                        sender_label=sender_label,
+                                                                        receiver_label=receiver_label,
+                                                                        pathway=pathway,
+                                                                        min_proportion=min_proportion,
+                                                                        test_permutation=test_permutation,
+                                                                        n_perms=n_perms)
 
         lr_interaction_scores.append(interaction_score)
 
     interaction_scores = pd.concat(lr_interaction_scores)
     
-    return interaction_scores
+    if return_df:
+        return interaction_scores
+    else:
+        adata.uns[output_key] = interaction_scores
 
 def calculate_interaction_scores_for_lr_pair(adata: AnnData,
                                                ligand: Optional[Union[str, List[str]]],
@@ -239,13 +251,13 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
         ligand_expression_in_sender = ligand_expression[sender_indices]
         receptor_expression_in_receiver = receptor_expression[receiver_indices]
 
+        tf_expression_in_receiver = None
         if downstream_tf is not None:
-            tf_expression_in_receiver = tf_expression_in_receiver[receiver_indices]
+            tf_expression_in_receiver = tf_expression[receiver_indices]
 
-        interaction_score = calculate_interaction_score_for_lr_pair(ligand_expression_in_sender,
-                                                                    receptor_expression_in_receiver,
-                                                                    tf_expression_in_receiver)
-        
+        interaction_score = calculate_interaction_score_for_lr_pair(ligand_expression=ligand_expression_in_sender,
+                                                                    receptor_expression=receptor_expression_in_receiver,
+                                                                    tf_expression=tf_expression_in_receiver)
         interaction_scores.append(interaction_score)
 
         if test_permutation:
@@ -270,13 +282,13 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
                 ligand_expression_in_sender_perm = ligand_expression[sender_indices_perm]
                 receptor_expression_in_receiver_perm = receptor_expression[receiver_indices_perm]
 
+                tf_expression_in_receiver_perm = None
                 if downstream_tf is not None:
-                    tf_expression_in_receiver_perm = tf_expression_in_receiver[receiver_indices_perm]
+                    tf_expression_in_receiver_perm = tf_expression[receiver_indices_perm]
 
-                interaction_score_perm = calculate_interaction_score_for_lr_pair(ligand_expression_in_sender_perm,
-                                                                                receptor_expression_in_receiver_perm,
-                                                                                tf_expression_in_receiver_perm)
-                
+                interaction_score_perm = calculate_interaction_score_for_lr_pair(ligand_expression=ligand_expression_in_sender_perm,
+                                                                                receptor_expression=receptor_expression_in_receiver_perm,
+                                                                                tf_expression=tf_expression_in_receiver_perm)
 
                 interaction_scores_null[perm] = interaction_score_perm
 
@@ -291,14 +303,14 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
                                              'interaction_score': interaction_scores})
     
     # Specify the information about the ligand-receptor interaction
-    interactions_for_lr_pair['ligand'] = '+'.join(ligand)
-    interactions_for_lr_pair['receptor'] = '+'.join(receptor)
+    interactions_for_lr_pair['ligand'] = '+'.join(sorted(ligand))
+    interactions_for_lr_pair['receptor'] = '+'.join(sorted(receptor))
 
-    interactions_for_lr_pair['interaction'] = '+'.join(ligand) + '-' + '+'.join(receptor)
+    interactions_for_lr_pair['interaction'] = '+'.join(sorted(ligand)) + ' - ' + ' + '.join(sorted(receptor))
     interactions_for_lr_pair['downstream_tfs'] = ''
 
     if  downstream_tf is not None:
-        interactions_for_lr_pair['downstream_tfs'] = '+'.join(downstream_tf)
+        interactions_for_lr_pair['downstream_tfs'] = ', '.join(sorted(downstream_tf))
 
     interactions_for_lr_pair['pathway'] = pathway  
 
