@@ -14,7 +14,7 @@ def binomial_deviance_selection(adata: AnnData,
                                 deviance_key: Optional[str] = 'binomial_deviance',
                                 highly_variable_key: Optional[str] = 'highly_deviant',
                                 n_top_genes: int = 1000,
-                                batch_label: Optional[str] = None,
+                                batch_key: Optional[str] = None,
                                 sort_genes: Optional[bool] = True) -> None:
     """
     Python implementation of the brilliantly effective feature selection method, developed by Will Townes 
@@ -33,7 +33,7 @@ def binomial_deviance_selection(adata: AnnData,
         The layer of the AnnData object to use. If None, this method won't work.
     n_top_genes : int, optional (default: 1000)
         Number of top genes to select when assigning genes as 'highly variable'
-    batch_label : str, optional (default: None)
+    batch_key : str, optional (default: None)
         The batch label in adata.obs. If used, we calculate the binomial deviance per batch and
         then define the binomial deviance per gene as the sum of the per-batch deviances.
     sort_genes : bool, optional (default: True)
@@ -47,16 +47,16 @@ def binomial_deviance_selection(adata: AnnData,
     """
 
     if layer is None:    
-        counts = adata.X
+        counts = adata.X.copy()
     else:
-        counts = adata.layers[layer]
+        counts = adata.layers[layer].copy()
 
-    batch_labels = adata.obs[batch_label].values if batch_label is not None else None
+    batch_keys = adata.obs[batch_key].values if batch_key is not None else None
 
     # Calculate the size factors as the row sums
     size_factors = counts.sum(1).A1
 
-    binomial_deviances = calculate_binomial_deviance_batch(counts, size_factors, batch_labels)
+    binomial_deviances = calculate_binomial_deviance_batch(counts, size_factors, batch_keys)
     adata.var[deviance_key] = np.nan_to_num(binomial_deviances, nan=0) # The NaN binomial deviances shouldn't matter
 
     # Set the top n genes as highly variable
@@ -65,45 +65,29 @@ def binomial_deviance_selection(adata: AnnData,
     mask[idx] = True
     adata.var[highly_variable_key] = mask
 
-    if sort_genes:
-        adata.var.sort_values(deviance_key, ascending=False, inplace=True)
 
 def calculate_binomial_deviance_batch(counts: csr_matrix,
                                       size_factors: np.ndarray,
-                                      batch_labels: Optional[np.ndarray] = None,
+                                      batch_keys: Optional[np.ndarray] = None,
                                       ) -> np.ndarray:
     
-    if batch_labels is not None:
-        batches = np.unique(batch_labels)
-        n_batches = len(np.unique(batch_labels))
+    if batch_keys is not None:
+        batches = np.unique(batch_keys)
+        n_batches = len(np.unique(batch_keys))
         binomial_deviances_per_batch = np.zeros((counts.shape[1], n_batches))
 
-        for i in range(n_batches):
-            batch_mask = batch_labels == batch
+        for i, batch in enumerate(batches):
+            batch_mask = batch_keys == batch
             counts_batch = counts[batch_mask, :]
             size_factors_batch = size_factors[batch_mask]
             binomial_deviances_batch = calculate_deviance(counts_batch, size_factors_batch)
-            binomial_deviances_per_batch[i, :] = binomial_deviances_batch
+            binomial_deviances_per_batch[:, i] = binomial_deviances_batch
 
-            binomial_deviances = binomial_deviances_per_batch.sum(0)
+            binomial_deviances = binomial_deviances_per_batch.sum(1)
 
             return binomial_deviances
     else:
         return calculate_deviance(counts, size_factors)
-
-
-    for i in range(n_batches):
-        batch = batches[i]
-
-        if batch is not None:
-            
-            batch_mask = batch_labels == batch
-            counts_batch = counts[batch_mask, :]
-            size_factors_batch = size_factors[batch_mask]
-            binomial_deviances_batch = calculate_deviance(counts_batch, size_factors_batch)
-            binomial_deviances = binomial_deviances_batch if i == 0 else binomial_deviances + binomial_deviances_batch
-
-    return binomial_deviances
 
 def calculate_deviance(counts: csr_matrix,
                         size_factors: np.ndarray,
