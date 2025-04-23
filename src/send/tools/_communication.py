@@ -42,7 +42,8 @@ def calculate_interaction_scores(adata: AnnData,
                                  test_permutation: bool = False,
                                  n_perms: int = 100,
                                  return_df: bool = False,
-                                 n_jobs: int = 1) -> Optional[pd.DataFrame]:
+                                 n_jobs: int = 1,
+                                 method: Literal['v1', 'v2'] = 'v1') -> Optional[pd.DataFrame]:
     """ Calculate all interaction scores with respect to a specified lbel.
 
     Parameters
@@ -175,7 +176,8 @@ def calculate_interaction_scores(adata: AnnData,
                                                         pathway=pathway,
                                                         min_proportion=min_proportion,
                                                         test_permutation=test_permutation,
-                                                        n_perms=n_perms)
+                                                        n_perms=n_perms,
+                                                        method=method)
 
     tasks = list(lr_pairs.items())  # each item is ((lig_str, rec_str), info)
 
@@ -206,7 +208,8 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
                                                pathway: Optional[str] = None,
                                                min_proportion: float =  0.1,
                                                test_permutation: bool = False,
-                                               n_perms: int = 100
+                                               n_perms: int = 100,
+                                               method: Literal['v1', 'v2'] = 'v1'
                                                ) -> pd.DataFrame:
     """ Calculate all interaction scores for a specified ligand-receptor pair 
 
@@ -257,14 +260,23 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
     ligand_expression = adata[:, ligand].X.toarray()
     receptor_expression = adata[:, receptor].X.toarray()
 
-    # Pre-compute the cell-wise ligand and receptor geometric means to speed up permutations
-    with np.errstate(divide='ignore', invalid='ignore'):
-        ligand_geom_mean = np.exp(np.log(ligand_expression).mean(1))
-        receptor_geom_mean = np.exp(np.log(receptor_expression).mean(1))
+    if method == 'v1':
+        # Pre-compute the cell-wise ligand and receptor geometric means to speed up permutations
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ligand_score = np.exp(np.log(ligand_expression).mean(1))
+            receptor_score = np.exp(np.log(receptor_expression).mean(1))
 
-    tf_expression = None
-    if downstream_tf is not None:
-        tf_expression = adata[:, downstream_tf].X.mean(1).A1
+        tf_score = None
+        if downstream_tf is not None:
+            tf_score = adata[:, downstream_tf].X.mean(1).A1
+
+    else: # Should be v2
+        ligand_score = ligand_expression.min(1)
+        receptor_score = receptor_expression.min(1)
+
+        tf_score = None
+        if downstream_tf is not None:
+            tf_score = adata[:, downstream_tf].X.max(1)
 
     # We define a potential sender as a group as any group with at least min_proportion of its cells expressing the ligand.
     # We define a potential receiver similarly
@@ -290,19 +302,19 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
         sender_indices = sender_indices_map[sender]
         receiver_indices = receiver_indices_map[receiver]
 
-        ligand_expression_in_sender = ligand_geom_mean[sender_indices]
-        receptor_expression_in_receiver = receptor_geom_mean[receiver_indices]
+        ligand_score_in_sender = ligand_score[sender_indices]
+        receptor_score_in_receiver = receptor_score[receiver_indices]
 
-        tf_expression_in_receiver = tf_expression[receiver_indices] if tf_expression is not None else None
+        tf_score_in_receiver = tf_score[receiver_indices] if tf_score is not None else None
 
-        ligand_mean = ligand_expression_in_sender.mean()
-        receptor_mean = receptor_expression_in_receiver.mean()
+        ligand_mean = ligand_score_in_sender.mean()
+        receptor_mean = receptor_score_in_receiver.mean()
         interaction_score = ligand_mean * receptor_mean
 
         # If we specify downstream TF expression, we take the arithmetic mean, as we only need one to be "signficantly" activated
-        if tf_expression is not None:
+        if tf_score_in_receiver is not None:
                 
-            tf_mean = tf_expression_in_receiver.mean()
+            tf_mean = tf_score_in_receiver.mean()
             interaction_score = ligand_mean * (receptor_mean * tf_mean)**(0.5)
 
         pval = np.nan
@@ -318,19 +330,19 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
                 sender_indices_perm = np.random.choice(all_indices, n_senders, replace=False) # Sample sender group
                 receiver_indices_perm = np.random.choice(all_indices, n_receivers, replace=False) # Sample receiver group
 
-                ligand_expression_in_sender_perm = ligand_geom_mean[sender_indices_perm]
-                receptor_expression_in_receiver_perm = receptor_geom_mean[receiver_indices_perm]
+                ligand_score_in_sender_perm = ligand_score[sender_indices_perm]
+                receptor_score_in_receiver_perm = receptor_score[receiver_indices_perm]
 
-                tf_expression_in_receiver_perm = tf_expression[receiver_indices_perm] if tf_expression is not None else None
+                tf_score_in_receiver_perm = tf_score[receiver_indices_perm] if tf_score is not None else None
 
-                ligand_mean_perm = ligand_expression_in_sender_perm.mean()
-                receptor_mean_perm = receptor_expression_in_receiver_perm.mean()
+                ligand_mean_perm = ligand_score_in_sender_perm.mean()
+                receptor_mean_perm = receptor_score_in_receiver_perm.mean()
                 interaction_score_perm =  ligand_mean_perm * receptor_mean_perm
 
                 # If we specify downstream TF expression, we take the arithmetic mean, as we only need one to be "signficantly" activated
-                if tf_expression is not None:
+                if tf_score_in_receiver_perm is not None:
                         
-                    tf_mean_perm = tf_expression_in_receiver_perm.mean()
+                    tf_mean_perm = tf_score_in_receiver_perm.mean()
                     interaction_score_perm = ligand_mean_perm * (receptor_mean_perm * tf_mean_perm)**(0.5)
 
                 interaction_scores_null[perm] = interaction_score_perm
