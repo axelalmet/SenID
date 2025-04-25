@@ -1,2 +1,0 @@
-from ._feature_selection import binomial_deviance_selection, calculate_binomial_deviance_batch
-from ._partition import partition_by_group_label

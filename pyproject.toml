@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "SenD"
+name = "SenID"
 version = "0.1.1"
-description = "A package to identify cell-autonomous and cell-nonautonomous features of cellular senescence and senescence-driven communication."
+description = "A package to identify cell-intrinsic and cell-exrinsic features of cellular senescence and senescence-driven communication."
 authors = ["Axel A. Almet"]
 license = "MIT License"
 readme = "README.md"

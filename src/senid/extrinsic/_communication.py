@@ -28,22 +28,22 @@ def tqdm_joblib(tqdm_object):
         tqdm_object.close()
 from joblib import Parallel, delayed
 
-def calculate_interaction_scores(adata: AnnData,
-                                 sender_label: str,
-                                 receiver_label: Optional[str] = None,
-                                 sender_groups: Optional[List[str]] = None,
-                                 receiver_groups: Optional[List[str]] = None,
-                                 output_key: str = 'SenD_output',
-                                 model: str = 'mouse',
-                                 use_highly_variable: bool = False,
-                                 highly_variable_key: Optional[str] = None,
-                                 stringency: Optional[str] = 'neither',
-                                 min_proportion: float = 0.1,
-                                 test_permutation: bool = False,
-                                 n_perms: int = 100,
-                                 return_df: bool = False,
-                                 n_jobs: int = 1,
-                                 method: Literal['v1', 'v2'] = 'v1') -> Optional[pd.DataFrame]:
+def senchat(adata: AnnData,
+    sender_label: str,
+    receiver_label: Optional[str] = None,
+    sender_groups: Optional[List[str]] = None,
+    receiver_groups: Optional[List[str]] = None,
+    output_key: str = 'SenD_output',
+    model: str = 'mouse',
+    use_highly_variable: bool = False,
+    highly_variable_key: Optional[str] = None,
+    stringency: Optional[str] = 'neither',
+    min_proportion: float = 0.1,
+    test_permutation: bool = False,
+    n_perms: int = 100,
+    return_df: bool = False,
+    n_jobs: int = 1,
+    method: Literal['v1', 'v2'] = 'v1') -> Optional[pd.DataFrame]:
     """ Calculate all interaction scores with respect to a specified lbel.
 
     Parameters
