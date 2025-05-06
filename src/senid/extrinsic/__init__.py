@@ -1,1 +1,1 @@
-from ._communication import senchat, calculate_interaction_scores_for_lr_pair
+from ._extrinsic_communication import senchat, calculate_interaction_scores_for_lr_pair

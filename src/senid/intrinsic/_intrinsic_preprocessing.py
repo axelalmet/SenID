@@ -1,0 +1,104 @@
+from anndata import AnnData
+from scipy.sparse import csr_matrix
+import numpy as np
+
+def _determine_bursty_genes(U: csr_matrix, S: csr_matrix, var_t=1.5, u_min=0.02, s_min=0.02):
+    '''
+    Determine which genes show bursty (overdispersed) dynamics based on
+    thresholds for mean expression and dispersion.
+    '''
+
+    def sparse_variance(X):
+        # Efficient sparse variance: E[x^2] - (E[x])^2
+        X_sq = X.copy()
+        X_sq.data **= 2
+        mean = X.mean(axis=0).A1  # .A1 flattens sparse matrix to 1D
+        mean_sq = X_sq.mean(axis=0).A1
+        return mean_sq - mean**2
+
+    # Compute mean and variance
+    U_mean = U.mean(axis=0).A1
+    S_mean = S.mean(axis=0).A1
+    U_var = sparse_variance(U)
+    S_var = sparse_variance(S)
+
+    # Dispersion
+    U_disp = (U_var - U_mean) / (U_mean ** 2 + 1e-12)
+    S_disp = (S_var - S_mean) / (S_mean ** 2 + 1e-12)
+
+    # Log ratio filter (with added epsilon to avoid division-by-zero)
+    log_ratio = np.abs(np.log((S_mean + 1e-12) / (U_mean + 1e-12)))
+
+    # Combined boolean mask
+    fitted_mask = (
+        (U_mean > u_min) &
+        (S_mean > s_min) &
+        (U_disp > var_t) &
+        (S_disp > var_t) &
+        (log_ratio < 4)
+    )
+
+    return fitted_mask
+
+def _construct_monod_object(adata: AnnData,
+                        spliced_layer: str = 'spliced',
+                        unspliced_layer: str = 'unspliced',
+                        **kwargs) -> AnnData:
+    
+    if spliced_layer not in adata.layers:
+        raise ValueError(f"Layer '{spliced_layer}' not found in adata.layers.")
+    if unspliced_layer not in adata.layers:
+        raise ValueError(f"Layer '{unspliced_layer}' not found in adata.layers.")
+    
+    if not isinstance(adata.layers[spliced_layer], csr_matrix):
+        raise TypeError(f"Layer '{spliced_layer}' must be a sparse matrix.")
+    if not isinstance(adata.layers[unspliced_layer], csr_matrix):
+        raise TypeError(f"Layer '{unspliced_layer}' must be a sparse matrix.")
+    
+    S = adata.layers[spliced_layer]
+    U = adata.layers[unspliced_layer]
+
+    fitted_idx = _determine_bursty_genes(U, S, **kwargs)
+    print('No. all genes that pass thresh: ', np.sum(fitted_idx))
+
+    g_names_toUse = adata.var_names[fitted_idx]
+
+    adata_monod = AnnData(X=S)
+    adata_monod.layers['unspliced'] = U
+    adata_monod.layers['spliced'] = S
+    adata_monod.obs = adata.obs
+    adata_monod.var = adata.var
+    adata_monod.obs.index.name = 'barcode'
+    adata_monod.var.index.name = 'gene_name'
+
+    adata_monod = adata_monod[:, g_names_toUse]
+
+    return adata_monod
+
+def generate_loom_objects(adata: AnnData,
+                          obs_key: str, 
+                          dataset_key: str,
+                          str_replace: str = '-',
+                          output_directory: str = '.',
+                          **kwargs):
+    """
+    Generate loom files for each phenotype in the AnnData object.
+    
+    Parameters:
+    - adata: AnnData object containing the data.
+    - pheno_col: Column name in adata.obs that contains phenotype information.
+    - data_directory: Directory to save the loom files.
+    """
+
+
+    str_replacements = str.maketrans({'/': '-', ' ': '-', ',': '-'})
+    adata_monod = _construct_monod_object(adata, **kwargs)
+
+
+    for group in adata.obs[obs_key].unique():
+        
+        group_label = group.translate(str_replacements)
+        adata_monod_group = adata_monod[adata_monod.obs[obs_key] == group]
+
+        adata_monod_group.write_loom(f'{output_directory}/{dataset_key}_{group_label}.loom')
+        print(f'Saved loom file for {group} at {output_directory}/{dataset_key}_{group_label}.loom')
