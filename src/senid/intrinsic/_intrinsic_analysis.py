@@ -328,11 +328,13 @@ def run_monod_inference(loom_directory: str,
 
         result_strings.append(full_result_string)
 
-def proces_monod_fits(sr_arr: list[inference.SearchResults],
+def process_monod_fits(sr_arr: list[inference.SearchResults],
                       sd_arr: list[extract_data.SearchData],
-                      plot_results: bool = True) -> None:
+                      dir_string: str,
+                      plot_results: bool = True,
+                      n_jobs: int = 1) -> None:
 
-    for j, sd in enumerate(sr_arr):
+    for j, sr in enumerate(sr_arr):
 
         sd = sd_arr[j]
 
@@ -346,16 +348,33 @@ def proces_monod_fits(sr_arr: list[inference.SearchResults],
 
             sr.plot_gene_distributions(sd,marg='joint')
 
-            _=sr.chisquare_testing(sd)
-            sr.resample_opt_viz()
-            sr.resample_opt_mc_viz()
-            sr.chisq_best_param_correction(sd,viz=True) 
+        _=sr.chisquare_testing(sd)
+        sr.resample_opt_viz()
+        sr.resample_opt_mc_viz()
+        sr.chisq_best_param_correction(sd,viz=True) 
 
-            sr.compute_sigma(sd,num_cores=4) #colab has a hard time with multiprocessing
+        sr.compute_sigma(sd,num_cores=n_jobs) #colab has a hard time with multiprocessing
+
+        if plot_results:
             sr.plot_param_L_dep(plot_errorbars=True,plot_fit=True)
             sr.plot_param_marg()
-            monod.analysis.make_batch_analysis_dir([sr],dir_string)
-            sr.update_on_disk() 
 
-# Monod DE genes
-# Store the dataframes
+        monod.analysis.make_batch_analysis_dir([sr],dir_string)
+        sr.update_on_disk() 
+
+def get_monod_de_genes(sr1: inference.SearchResults,
+                       sr2: inference.SearchResults,
+                       sd1: extract_data.SearchData,
+                       sd2: extract_data.SearchData,
+                       gene_names: list[str],
+                       gf_rej: bool = False,
+                       param_lfc: float = 2.0,
+                       mean_lfc: float = 1.0,
+                       outlier_de: bool = True,
+                       single_nuc: bool = False,
+                       correct_off: bool = False) -> pd.DataFrame:
+
+    param_lfcs = _get_log_fold_changes(sr1, sr2, sd1, sd2, gene_names, gf_rej, param_lfc, mean_lfc, outlier_de, single_nuc, correct_off)
+    de_results = _get_DE_results(param_lfcs)
+
+    return de_results

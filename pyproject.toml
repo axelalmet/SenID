@@ -17,6 +17,7 @@ scipy = "^1.15.2"
 monod = "^0.2.9.0"
 cnmf = "^1.7.0"
 commot = "^0.0.3"
+pingouin = "^0.5.5"
 
 
 [build-system]

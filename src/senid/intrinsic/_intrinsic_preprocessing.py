@@ -40,7 +40,7 @@ def _determine_bursty_genes(U: csr_matrix, S: csr_matrix, var_t=1.5, u_min=0.02,
 
     return fitted_mask
 
-def _construct_monod_object(adata: AnnData,
+def filter_genes(adata: AnnData,
                         spliced_layer: str = 'spliced',
                         unspliced_layer: str = 'unspliced',
                         **kwargs) -> AnnData:
@@ -90,8 +90,8 @@ def generate_loom_objects(adata: AnnData,
     - data_directory: Directory to save the loom files.
     """
 
-
-    str_replacements = str.maketrans({'/': '-', ' ': '-', ',': '-'})
+    strs_to_replace = ['/', ' ', ',', '.']
+    str_replacements = str.maketrans({str: str_replace for str in strs_to_replace})
     adata_monod = _construct_monod_object(adata, **kwargs)
 
 
