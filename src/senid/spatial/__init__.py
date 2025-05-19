@@ -1,0 +1,2 @@
+from ._spatial_communication import infer_spatial_communication
+from ._spatial_analysis import subset_for_spatial_sasp_communication, 

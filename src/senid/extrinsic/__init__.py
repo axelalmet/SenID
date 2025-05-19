@@ -1,1 +1,2 @@
 from ._extrinsic_communication import senchat, calculate_interaction_scores_for_lr_pair
+from ._extrinsic_analysis import subset_for_communication, run_cnmf, infer_consensus_modules, calculate_ligand_enrichment

@@ -6,11 +6,12 @@ from cnmf import cNMF
 import numpy as np
 import pingouin as pg
 
-def subset_for_sasp_communication(adata: AnnData,
-                                  send_output_key: str,
-                                  pval_threshold: float = None,
-                                  layer: str = 'counts',
-                                  model: Literal['mouse', 'human'] = 'human') -> AnnData:
+def subset_for_communication(adata: AnnData,
+                            senchat_output_key: str,
+                            pval_threshold: float = None,
+                            subset_sasp: bool = True,
+                            layer: str = 'counts',
+                            model: Literal['mouse', 'human'] = 'human') -> AnnData:
 
 
     data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
@@ -23,32 +24,36 @@ def subset_for_sasp_communication(adata: AnnData,
     snc_genes = pd.read_csv(data_path, index_col=0)
     sasp_genes = snc_genes[snc_genes['SASP']].index.tolist()
 
-    if send_output_key not in adata.uns:
-        raise ValueError(f"Key '{send_output_key}' not found in adata.uns.")
+    if senchat_output_key not in adata.uns:
+        raise ValueError(f"Key '{senchat_output_key}' not found in adata.uns.")
     if layer not in adata.layers:
         raise ValueError(f"Layer '{layer}' not found in adata.layers.")
     
-    send_output = adata.uns[send_output_key]
+    senchat_output = adata.uns[senchat_output_key]
 
-    if pval_threshold
-        send_output = send_output[send_output['pval'] < pval_threshold]
+    if pval_threshold is not None:
+        senchat_output = senchat_output[senchat_output['pval'] < pval_threshold]
 
+    senchat_ligs = list({gene for rec in senchat_output['ligand'].unique() for gene in rec.split('+')})
+    senchat_recs = list({gene for rec in senchat_output['receptor'].unique() for gene in rec.split('+')})
 
-    send_sasp_ligs = list({gene for rec in send_output['ligand'].unique() for gene in rec.split('+') if gene in sasp_genes})
-    send_sasp_recs = list({gene for rec in send_output['receptor'].unique() for gene in rec.split('+') if gene in sasp_genes})
+    if subset_sasp:
+        senchat_ligs = [lig for lig in senchat_ligs if lig in sasp_genes]
+        senchat_recs = [rec for rec in senchat_recs if rec in sasp_genes]
 
-    sasp_ccc_genes = list(set(send_sasp_ligs).union(set(send_sasp_recs)))
+    ccc_genes = list(set(senchat_ligs + senchat_recs))
 
-    adata_sasp = adata[:, sasp_ccc_genes]
-    adata_sasp.X = adata_sasp.layers[layer]
+    adata_ccc = adata[:, ccc_genes]
+    adata_ccc.X = adata_ccc.layers[layer]
 
-    adata_sasp = adata_sasp[:, adata_sasp.X.sum(0) != 0]  
-    adata_sasp = adata_sasp[adata_sasp.X.sum(1) != 0]
+    adata_ccc = adata_ccc[:, adata_ccc.X.sum(0) != 0]  
+    adata_ccc = adata_ccc[adata_ccc.X.sum(1) != 0]
 
-    print(f'Removed { adata.n_obs - adata_sasp.n_obs} cells with zero SASP counts.')
-    print(f'Removed {len(sasp_ccc_genes)- adata_sasp.n_vars} genes from the initial SASP gene set.')
+    print(f'Removed { adata.n_obs - adata_ccc.n_obs} cells with zero SASP counts.')
+    print(f'Removed {len(ccc_genes)- adata_ccc.n_vars} genes from the initial SASP gene set.')
+    print(f'SASP genes in the final dataset: {", ".join(ccc_genes)}')
 
-    return adata_sasp
+    return adata_ccc
 
 def run_cnmf(output_dir: str,
              adata_fname: str,
@@ -81,10 +86,12 @@ def infer_consensus_modules(adata_cnmf: AnnData,
     cnmf_obj.consensus(k=optimal_k, density_threshold=density_threshold)
     usage, spectra_scores, spectra_tpm, top_genes = cnmf_obj.load_results(K=optimal_k, density_threshold=density_threshold)
 
-    adata_cnmf.obsm['X_cNMF'] = usage
-    adata_cnmf.varm['cNMF_spectra_scores'] = spectra_scores
-    adata_cnmf.varm['cNMF_spectra_tpm'] = spectra_tpm
-    adata_cnmf.uns['cNMF_top_genes'] = top_genes
+    print(top_genes.head(5))
+    
+    adata_cnmf.obsm['X_cNMF'] = usage.values
+    adata_cnmf.varm['cNMF_spectra_scores'] = spectra_scores.values
+    adata_cnmf.varm['cNMF_spectra_tpm'] = spectra_tpm.values
+    # adata_cnmf.uns['cNMF_top_genes'] = top_genes
 
 # Analysis (ligand enrichment), 
 def calculate_ligand_enrichment(adata: AnnData,
