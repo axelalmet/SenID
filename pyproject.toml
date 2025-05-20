@@ -21,6 +21,9 @@ pingouin = "^0.5.5"
 squidpy = "^1.6.5"
 
 
+[tool.poetry.group.dev.dependencies]
+deptry = "^0.23.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

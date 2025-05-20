@@ -1,6 +1,8 @@
 from anndata import AnnData
 from scipy.sparse import csr_matrix
 import numpy as np
+from itertools import product
+import pandas as pd
 
 def _determine_bursty_genes(U: csr_matrix, S: csr_matrix, var_t=1.5, u_min=0.02, s_min=0.02):
     '''
@@ -75,11 +77,37 @@ def _filter_genes(adata: AnnData,
 
     return adata_monod
 
+def _determine_comparison_groups(adata: AnnData,
+                                 partition_key: str,
+                                 comparison_key: str,
+                                 min_cells: int = 100) -> list:
+    """
+    Determine the groups to consider for comparison based on the number of cells.
+    
+    Parameters:
+    - adata: AnnData object containing the data.
+    - partition_key: Column name in adata.obs that contains partition information.
+    - comparison_key: Column name in adata.obs that contains comparison information.
+    - min_cells: Minimum number of cells required to consider a group.
+    
+    Returns:
+    - List of groups to consider for comparison.
+    """
+    
+    cell_groups_per_comparison = pd.crosstab(adata.obs[partition_key], adata.obs[comparison_key])
+
+    cell_groups_to_consider = cell_groups_per_comparison[cell_groups_per_comparison.min(1) > min_cells].index.tolist()
+
+    return cell_groups_to_consider
+
 def generate_loom_objects(adata: AnnData,
-                          obs_key: str, 
                           dataset_key: str,
+                          partition_key: str, 
+                          comparison_key: str,
                           str_replace: str = '-',
                           output_directory: str = '.',
+                          min_cells: int = 100,
+                          return_groups: bool = False,
                           **kwargs):
     """
     Generate loom files for each phenotype in the AnnData object.
@@ -94,11 +122,24 @@ def generate_loom_objects(adata: AnnData,
     str_replacements = str.maketrans({str: str_replace for str in strs_to_replace})
     adata_monod = _filter_genes(adata, **kwargs)
 
+    cell_groups = adata.obs[partition_key].unique()
+    comparisons = adata.obs[comparison_key].unique()
 
-    for group in adata.obs[obs_key].unique():
+    cell_groups_to_consider = _determine_comparison_groups(adata_monod,
+                                                           partition_key,
+                                                           comparison_key,
+                                                           min_cells=min_cells)
+
+    print(f'Cell groups that passed min_cells threshold: {", ".join(sorted(cell_groups_to_consider))}')
+    for group, part in product(cell_groups_to_consider, comparisons):
         
         group_label = group.translate(str_replacements)
-        adata_monod_group = adata_monod[adata_monod.obs[obs_key] == group]
+        part_label = part.translate(str_replacements)
 
-        adata_monod_group.write_loom(f'{output_directory}/{dataset_key}_{group_label}.loom')
-        print(f'Saved loom file for {group} at {output_directory}/{dataset_key}_{group_label}.loom')
+        adata_monod_group = adata_monod[(adata_monod.obs[partition_key] == group)&(adata_monod.obs[comparison_key] == part), :].copy()
+
+        adata_monod_group.write_loom(f'{output_directory}/{dataset_key}_{group_label}_{part_label}.loom')
+        print(f'Saved loom file for {group} at {output_directory}/{dataset_key}_{group_label}_{part_label}.loom')
+
+    if return_groups:
+        return cell_groups_to_consider
