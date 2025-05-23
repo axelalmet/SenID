@@ -17,6 +17,7 @@ def _get_log_fold_changes(sr1: inference.SearchResults,
                           gf_rej: bool = False,
                           param_lfc: float = 2.0,
                           mean_lfc: float = 1.0,
+                          pval_thr: float = 0.05,
                           outlier_de: bool = True,
                           single_nuc: bool = False,
                           correct_off: bool =False):
@@ -56,7 +57,7 @@ def _get_log_fold_changes(sr1: inference.SearchResults,
         for k in range(len(param_names)):
             m1 = par_vals1[0,:,k]
             m2 = par_vals2[0,:,k]
-            offset = analysis.diffexp_fpi(m1,m2,param_names[k],viz=False)[1]
+            offset = analysis.diffexp_fpi(m1,m2,param_names[k],viz=False, pval_thr=pval_thr)[1]
             par_vals2[0,:,k] -= offset
 
         fc_par = (par_vals1-par_vals2)/np.log10(2)
@@ -77,7 +78,7 @@ def _get_log_fold_changes(sr1: inference.SearchResults,
             print('Not running outlier DE. SRs need to have the same gene dimensions.')
             par_bool_de = np.zeros((len(gene_names),len(parnames)))
         else:
-            dr_analysis = monod.analysis.diffexp_pars(sr1,sr2,viz=True,modeltype='id',use_sigma=True)
+            dr_analysis = monod.analysis.diffexp_pars(sr1,sr2,viz=True,modeltype='id',use_sigma=True, pval_thr=pval_thr)
             par_bool_de = dr_analysis[1].T
 
   #-----is parameter FC significant -----
@@ -99,7 +100,7 @@ def _get_log_fold_changes(sr1: inference.SearchResults,
                 & gf_rej
 
         #Boolean for FC (above) but no FC detected at S-level
-        gf_highnoise_meanS = gf_highnoise & (np.abs(fc_s_par)<1) & gf_rej
+        gf_highnoise_meanS = gf_highnoise & (np.abs(fc_s_par)<mean_lfc) & gf_rej
 
         #Boolean for FC (above)
         gf_onlyhigh = gf_highnoise & gf_rej
