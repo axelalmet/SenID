@@ -154,8 +154,10 @@ def _get_DE_results(param_lfcs: pd.DataFrame) -> pd.DataFrame:
     dom_type = []
 
     # Prepare split cluster pairs
-    pairs = df_b.cluster_pair.str.split(',').tolist()
-    pairs = np.array(pairs)
+    pairs = df_b.cluster_pair.apply(lambda x: x if isinstance(x, list) else x.split(','))
+    pairs = np.vstack(pairs.values)
+    # pairs = df_b.cluster_pair.str.split(',').tolist()
+    # pairs = np.array(pairs)
 
     # Precompute necessary comparisons
     abs_b = np.abs(bs)
