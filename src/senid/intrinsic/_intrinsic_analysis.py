@@ -13,6 +13,8 @@ def _get_log_fold_changes(sr1: inference.SearchResults,
                           sr2: inference.SearchResults,
                           sd1: extract_data.SearchData,
                           sd2: extract_data.SearchData,
+                          dname1: str,
+                          dname2: str,
                           gene_names: list[str],
                           gf_rej: bool = False,
                           param_lfc: float = 2.0,
@@ -20,7 +22,7 @@ def _get_log_fold_changes(sr1: inference.SearchResults,
                           pval_thr: float = 0.05,
                           outlier_de: bool = True,
                           single_nuc: bool = False,
-                          correct_off: bool =False):
+                          correct_off: bool = False):
     '''
     Utilize different metrics to find fold-changes (FCs) between clusters in different SRs
 
@@ -108,7 +110,7 @@ def _get_log_fold_changes(sr1: inference.SearchResults,
         #For dataframe
         fcs += list(fc_par[0,gf_rej,n])
         g_names += list(gene_names[gf_rej])
-        which_pair += [[1,2]]*np.sum(gf_rej)
+        which_pair += [[dname1, dname2]]*np.sum(gf_rej)
         highFC += list(gf_onlyhigh[gf_rej])
         spliceFC += list(gf_highnoise_meanS[gf_rej])
         types += [parnames[n]]*np.sum(gf_rej)
@@ -367,15 +369,30 @@ def get_monod_de_genes(sr1: inference.SearchResults,
                        sr2: inference.SearchResults,
                        sd1: extract_data.SearchData,
                        sd2: extract_data.SearchData,
+                       dname1: str,
+                       dname2: str,
                        gene_names: list[str],
                        gf_rej: bool = False,
                        param_lfc: float = 2.0,
                        mean_lfc: float = 1.0,
+                       pval_thr: float = 0.05,
                        outlier_de: bool = True,
                        single_nuc: bool = False,
                        correct_off: bool = False) -> pd.DataFrame:
 
-    param_lfcs = _get_log_fold_changes(sr1, sr2, sd1, sd2, gene_names, gf_rej, param_lfc, mean_lfc, outlier_de, single_nuc, correct_off)
+    param_lfcs = _get_log_fold_changes(sr1=sr1, 
+                                       sr2=sr2,
+                                       sd1=sd1,
+                                       sd2=sd2, 
+                                       gene_names=gene_names, 
+                                       gf_rej=gf_rej, 
+                                       param_lfc=param_lfc, 
+                                       mean_lfc=mean_lfc, 
+                                       pval_thr=pval_thr,
+                                       outlier_de=outlier_de, 
+                                       single_nuc=single_nuc, 
+                                       correct_off=correct_off)
+    
     de_results = _get_DE_results(param_lfcs)
 
     return de_results
