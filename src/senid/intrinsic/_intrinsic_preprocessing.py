@@ -4,7 +4,7 @@ import numpy as np
 from itertools import product
 import pandas as pd
 
-def _determine_bursty_genes(U: csr_matrix, S: csr_matrix, var_t=1.5, u_min=0.02, s_min=0.02):
+def _determine_bursty_genes(U: csr_matrix, S: csr_matrix, var_t: float =1.5, u_min: float =0.02, s_min: float=0.02):
     '''
     Determine which genes show bursty (overdispersed) dynamics based on
     thresholds for mean expression and dispersion.
@@ -79,7 +79,7 @@ def _filter_genes(adata: AnnData,
 
 def _determine_comparison_groups(adata: AnnData,
                                  partition_key: str,
-                                 comparison_key: str,
+                                 comparison_key: str = None,
                                  min_cells: int = 100) -> list:
     """
     Determine the groups to consider for comparison based on the number of cells.
@@ -94,16 +94,16 @@ def _determine_comparison_groups(adata: AnnData,
     - List of groups to consider for comparison.
     """
     
-    cell_groups_per_comparison = pd.crosstab(adata.obs[partition_key], adata.obs[comparison_key])
-
-    cell_groups_to_consider = cell_groups_per_comparison[cell_groups_per_comparison.min(1) > min_cells].index.tolist()
-
-    return cell_groups_to_consider
+    if comparison_key:
+        cross_tab = pd.crosstab(adata.obs[partition_key], adata.obs[comparison_key])
+        return cross_tab[cross_tab.min(axis=1) > min_cells].index.tolist()
+    else:
+        return adata.obs[partition_key].value_counts()[lambda x: x > min_cells].index.tolist()
 
 def generate_loom_objects(adata: AnnData,
                           dataset_key: str,
                           partition_key: str, 
-                          comparison_key: str,
+                          comparison_key: str = None,
                           str_replace: str = '-',
                           output_directory: str = '.',
                           min_cells: int = 100,
@@ -122,8 +122,7 @@ def generate_loom_objects(adata: AnnData,
     str_replacements = str.maketrans({str: str_replace for str in strs_to_replace})
     adata_monod = _filter_genes(adata, **kwargs)
 
-    cell_groups = adata.obs[partition_key].unique()
-    comparisons = adata.obs[comparison_key].unique()
+    comparisons = adata.obs[comparison_key].unique() if comparison_key else [None]
 
     cell_groups_to_consider = _determine_comparison_groups(adata_monod,
                                                            partition_key,
@@ -131,15 +130,41 @@ def generate_loom_objects(adata: AnnData,
                                                            min_cells=min_cells)
 
     print(f'Cell groups that passed min_cells threshold: {", ".join(sorted(cell_groups_to_consider))}')
-    for group, part in product(cell_groups_to_consider, comparisons):
+
+    if comparisons is not None:
+
+        for group, part in product(cell_groups_to_consider, comparisons):
+            
+            group_label = group.translate(str_replacements)
+            part_label = part.translate(str_replacements) if part else None
+
+            mask = (adata_monod.obs[partition_key] == group)
+            if part:
+                mask &= (adata_monod.obs[comparison_key] == part)
+
+            adata_monod_group = adata_monod[mask].copy()
+
+            filename = f'{output_directory}/{dataset_key}_{group_label}'
+            if part_label:
+                filename += f'_{part_label}'
+            filename += '.loom'
+
+            adata_monod_group.write_loom(filename)
+            print(f"Saved loom file for {group}" + (f" and {part}" if part else "") + f" at {filename}")
+            
+        if return_groups:
+            return cell_groups_to_consider
         
-        group_label = group.translate(str_replacements)
-        part_label = part.translate(str_replacements)
+    else:
 
-        adata_monod_group = adata_monod[(adata_monod.obs[partition_key] == group)&(adata_monod.obs[comparison_key] == part), :].copy()
+        for group in cell_groups_to_consider:
+            
+            group_label = group.translate(str_replacements)
 
-        adata_monod_group.write_loom(f'{output_directory}/{dataset_key}_{group_label}_{part_label}.loom')
-        print(f'Saved loom file for {group} at {output_directory}/{dataset_key}_{group_label}_{part_label}.loom')
+            adata_monod_group = adata_monod[(adata_monod.obs[partition_key] == group)].copy()
 
-    if return_groups:
-        return cell_groups_to_consider
+            adata_monod_group.write_loom(f'{output_directory}/{dataset_key}_{group_label}.loom')
+            print(f'Saved loom file for {group} at {output_directory}/{dataset_key}_{group_label}.loom')
+
+        if return_groups:
+            return cell_groups_to_consider

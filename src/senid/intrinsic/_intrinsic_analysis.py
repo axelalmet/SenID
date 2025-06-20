@@ -176,8 +176,8 @@ def _get_DE_results(param_lfcs: pd.DataFrame) -> pd.DataFrame:
     cond9 = (gammas < 0) & sig_gamma # Sig in gamma
 
     # Initialize outputs
-    dom = np.full(len(bs), 'None', dtype=object)
-    dom_type = np.full(len(bs), 'None', dtype=object)
+    dom = np.full(len(bs), 'None', dtype='<U50')
+    dom_type = np.full(len(bs), 'None', dtype='<U50')
 
     # Apply conditions vectorized
     mask = cond1 & (abs_b < abs_beta)
@@ -244,16 +244,23 @@ def _get_DE_results(param_lfcs: pd.DataFrame) -> pd.DataFrame:
     # Approximate the log fold change in k using the beta and gamma log fold changes
     ks = -0.5 * (betas.values + gammas.values)
 
-    return pd.DataFrame(data={'gene': names.values,
+    markers_df = pd.DataFrame(data={'gene': names.values,
                               'synthesis': bs.values,
-                                '-splicing': -betas.values,
-                                '-degradation': -gammas.values,
+                                'splicing': -betas.values,
+                                'degradation': -gammas.values,
                                 'frequency': ks,
                                 'DE': highFCs,
                                 'DE-reg': noSpliceFCs,
                                 'marker': dom,
                                 'marker_type': dom_type,
                                 })
+
+    markers_df['marker'] = pd.Categorical(markers_df['marker'], categories=np.unique(pairs), ordered=False)
+    markers_df['marker_type'] = pd.Categorical(markers_df['marker_type'],
+                                   categories=['None', 'synthesis', 'frequency', 'splicing', 'degradation'],
+                                   ordered=False)
+
+    return markers_df
 
 def prepare_files_for_inference(loom_directory: str,
                                 dataset_names: list[str],
