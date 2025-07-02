@@ -36,15 +36,17 @@ def senchat(adata: AnnData,
     output_key: str = 'SenChat_output',
     model: Literal['human', 'mouse'] = 'human',
     use_highly_variable: bool = False,
-    use_sasp: bool = False,
     highly_variable_key: Optional[str] = None,
     stringency: Optional[str] = 'neither',
-    min_proportion: float = 0.1,
+    min_signal_proportion: float = 0.1,
+    filter_small_groups: bool = False,
+    min_cell_proportion: float = 0.001,
     test_permutation: bool = False,
     n_perms: int = 100,
     return_df: bool = False,
     n_jobs: int = 1,
-    method: Literal['v1', 'v2'] = 'v1') -> Optional[pd.DataFrame]:
+    score_method: Literal['v1', 'v2'] = 'v1',
+    perm_method: Literal['v1', 'v2'] = 'v1') -> Optional[pd.DataFrame]:
     """ Calculate all interaction scores with respect to a specified lbel.
 
     Parameters
@@ -103,6 +105,8 @@ def senchat(adata: AnnData,
         lig_subunits = row['ligand.symbol'].split(', ')
         rec_subunits = row['receptor.symbol'].split(', ')
         pathway_name = row['pathway_name']
+        pathway_type = row['annotation']
+        is_neurotransmitter = row['is_neurotransmitter']
 
         lig_subunits_set = set(lig_subunits)
         rec_subunits_set = set(rec_subunits)
@@ -156,7 +160,7 @@ def senchat(adata: AnnData,
             ligand = '+'.join(lig_subunits)
             receptor = '+'.join(rec_subunits)
 
-            lr_pairs[(ligand, receptor)] = {'tf': downstream_tfs_for_pair, 'pathway_name': pathway_name}
+            lr_pairs[(ligand, receptor)] = {'tf': downstream_tfs_for_pair, 'pathway_name': pathway_name, 'pathway_type': pathway_type, 'is_neurotransmitter': is_neurotransmitter}
 
     # Parallelise ligand-receptor score inference
     def _lr_score_for_one_pair(lig_str, rec_str, downstream_info):
@@ -175,10 +179,15 @@ def senchat(adata: AnnData,
                                                         receiver_groups=receiver_groups,
                                                         downstream_tf=downstream_tfs or None,
                                                         pathway=pathway,
-                                                        min_proportion=min_proportion,
-                                                        test_permutation=test_permutation,
+                                                        pathway_type=pathway_type,
+                                                        is_neurotransmitter=is_neurotransmitter,
+                                                        min_signal_proportion=min_signal_proportion,
+                                                            filter_small_groups=filter_small_groups,
+                                                            min_cell_proportion=min_cell_proportion,
+                                                            test_permutation=test_permutation,
                                                         n_perms=n_perms,
-                                                        method=method)
+                                                        score_method=score_method,
+                                                        perm_method=perm_method)
 
     tasks = list(lr_pairs.items())  # each item is ((lig_str, rec_str), info)
 
@@ -207,10 +216,15 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
                                                receiver_groups: Optional[List[str]] = None,
                                                downstream_tf: Optional[Union[str, List[str]]] = None,
                                                pathway: Optional[str] = None,
-                                               min_proportion: float =  0.1,
+                                               pathway_type: Optional[str] = None,
+                                               is_neurotransmitter: Optional[bool] = None,
+                                               min_signal_proportion: float =  0.1,
+                                               filter_small_groups: bool = False,
+                                               min_cell_proportion: float = 0.001,
                                                test_permutation: bool = False,
                                                n_perms: int = 100,
-                                               method: Literal['v1', 'v2'] = 'v1'
+                                               score_method: Literal['v1', 'v2'] = 'v1',
+                                               perm_method: Literal['v1', 'v2'] = 'v1'
                                                ) -> pd.DataFrame:
     """ Calculate all interaction scores for a specified ligand-receptor pair 
 
@@ -248,6 +262,17 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
             
         receiver_groups = adata.obs[receiver_label].unique()
 
+    sender_group_proportions = adata.obs[sender_label].value_counts(normalize=True)
+    receiver_group_proportions = adata.obs[receiver_label].value_counts(normalize=True)
+
+    if filter_small_groups:
+        # Filter out groups that have less than min_cell_proportion of cells
+        sender_groups = [group for group in sender_groups if sender_group_proportions[group] >= min_cell_proportion]
+        receiver_groups = [group for group in receiver_groups if receiver_group_proportions[group] >= min_cell_proportion]
+
+        if not sender_groups or not receiver_groups:
+            raise ValueError("No groups left after filtering. Please adjust the min_cell_proportion parameter.")
+
     # Pre-compute sender and receiver group indices to save time
     sender_indices_map = {
         group: np.where(adata.obs[sender_label] == group)[0]
@@ -258,10 +283,11 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
         for group in receiver_groups
     }
 
+
     ligand_expression = adata[:, ligand].X.toarray()
     receptor_expression = adata[:, receptor].X.toarray()
 
-    if method == 'v1':
+    if score_method == 'v1':
         # Pre-compute the cell-wise ligand and receptor geometric means to speed up permutations
         with np.errstate(divide='ignore', invalid='ignore'):
             ligand_score = np.exp(np.log(ligand_expression).mean(1))
@@ -291,8 +317,8 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
 
         proportion_expressing_receptor = (receptor_expression[receiver_indices] > 0).all(axis=1).mean()
         
-        if ( (proportion_expressing_ligand > min_proportion)\
-            &(proportion_expressing_receptor > min_proportion) ):
+        if ( (proportion_expressing_ligand > min_signal_proportion)\
+            &(proportion_expressing_receptor > min_signal_proportion) ):
 
             potential_sender_receiver_pairs.append((sender, receiver))
 
@@ -320,35 +346,70 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
 
         pval = np.nan
         if test_permutation:
-            
-            n_senders = len(sender_indices)
-            n_receivers = len(receiver_indices)
-            all_indices = np.arange(adata.n_obs)
 
             interaction_scores_null = np.zeros(n_perms)
-            for perm in range(n_perms):
 
-                sender_indices_perm = np.random.choice(all_indices, n_senders, replace=False) # Sample sender group
-                receiver_indices_perm = np.random.choice(all_indices, n_receivers, replace=False) # Sample receiver group
+            if perm_method == 'v1':
+                
+                n_senders = len(sender_indices)
+                n_receivers = len(receiver_indices)
+                all_indices = np.arange(adata.n_obs)
 
-                ligand_score_in_sender_perm = ligand_score[sender_indices_perm]
-                receptor_score_in_receiver_perm = receptor_score[receiver_indices_perm]
+                for perm in range(n_perms):
 
-                tf_score_in_receiver_perm = tf_score[receiver_indices_perm] if tf_score is not None else None
+                    sender_indices_perm = np.random.choice(all_indices, n_senders, replace=False) # Sample sender group
+                    receiver_indices_perm = np.random.choice(all_indices, n_receivers, replace=False) # Sample receiver group
 
-                ligand_mean_perm = ligand_score_in_sender_perm.mean()
-                receptor_mean_perm = receptor_score_in_receiver_perm.mean()
-                interaction_score_perm =  ligand_mean_perm * receptor_mean_perm
+                    ligand_score_in_sender_perm = ligand_score[sender_indices_perm]
+                    receptor_score_in_receiver_perm = receptor_score[receiver_indices_perm]
 
-                # If we specify downstream TF expression, we take the arithmetic mean, as we only need one to be "signficantly" activated
-                if tf_score_in_receiver_perm is not None:
-                        
-                    tf_mean_perm = tf_score_in_receiver_perm.mean()
-                    interaction_score_perm = ligand_mean_perm * (receptor_mean_perm * tf_mean_perm)**(0.5)
+                    tf_score_in_receiver_perm = tf_score[receiver_indices_perm] if tf_score is not None else None
 
-                interaction_scores_null[perm] = interaction_score_perm
+                    ligand_mean_perm = ligand_score_in_sender_perm.mean()
+                    receptor_mean_perm = receptor_score_in_receiver_perm.mean()
+                    interaction_score_perm =  ligand_mean_perm * receptor_mean_perm
 
-            pval = (interaction_score < interaction_scores_null).sum() / n_perms
+                    # If we specify downstream TF expression, we take the arithmetic mean, as we only need one to be "signficantly" activated
+                    if tf_score_in_receiver_perm is not None:
+                            
+                        tf_mean_perm = tf_score_in_receiver_perm.mean()
+                        interaction_score_perm = ligand_mean_perm * (receptor_mean_perm * tf_mean_perm)**(0.5)
+
+                    interaction_scores_null[perm] = interaction_score_perm
+
+                pval = (interaction_score < interaction_scores_null).sum() / n_perms
+
+            else: # Do v2, which is the CellChat/CellPhoenDB like method
+
+                sender_labels = adata.obs[sender_label].values
+                receiver_labels = adata.obs[receiver_label].values
+
+                for perm in range(n_perms):
+
+                    sender_labels_shuffled = np.random.permutation(sender_labels)
+                    receiver_labels_shuffled = np.random.permutation(receiver_labels)
+
+                    sender_indices_perm = np.where(sender_labels_shuffled == sender)[0]
+                    receiver_indices_perm = np.where(receiver_labels_shuffled == receiver)[0]
+
+                    ligand_score_in_sender_perm = ligand_score[sender_indices_perm]
+                    receptor_score_in_receiver_perm = receptor_score[receiver_indices_perm]
+
+                    tf_score_in_receiver_perm = tf_score[receiver_indices_perm] if tf_score is not None else None
+
+                    ligand_mean_perm = ligand_score_in_sender_perm.mean()
+                    receptor_mean_perm = receptor_score_in_receiver_perm.mean()
+                    interaction_score_perm =  ligand_mean_perm * receptor_mean_perm
+
+                    # If we specify downstream TF expression, we take the arithmetic mean, as we only need one to be "signficantly" activated
+                    if tf_score_in_receiver_perm is not None:
+                            
+                        tf_mean_perm = tf_score_in_receiver_perm.mean()
+                        interaction_score_perm = ligand_mean_perm * (receptor_mean_perm * tf_mean_perm)**(0.5)
+
+                    interaction_scores_null[perm] = interaction_score_perm
+
+                pval = (interaction_score < interaction_scores_null).sum() / n_perms
             
         # Store
         interaction_score_results.append({
@@ -365,6 +426,8 @@ def calculate_interaction_scores_for_lr_pair(adata: AnnData,
                 if downstream_tf is not None and isinstance(downstream_tf, list) else ''
             ),
             'pathway': pathway,
+            'pathway_type': pathway_type,
+            'is_neurotransmitter': is_neurotransmitter,
             'pval': pval
         })
 

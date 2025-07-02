@@ -6,6 +6,28 @@ from cnmf import cNMF
 import numpy as np
 import pingouin as pg
 
+def constrain_senchat_interactions(adata:  AnnData,
+                                   senchat_output_key: str,
+                                   implausible_interactions: dict) -> None:
+
+    if senchat_output_key not in adata.uns:
+        raise ValueError(f"Key '{senchat_output_key}' not found in adata.uns. Please run SenChat first.")
+
+
+    senchat_results = adata.uns[senchat_output_key]
+    masks = []
+
+    for sender, implausible_receivers in implausible_interactions.items():
+
+        mask = ~( (senchat_results['sender'] == sender) & (senchat_results['receiver'].isin(implausible_receivers)) )
+        masks.append(mask)
+
+    combined_mask = np.logical_and.reduce(masks) if masks else None
+
+    constrained_results = senchat_results[combined_mask] if combined_mask is not None else senchat_results
+
+    adata.uns[f'{senchat_output_key}_constrained'] = constrained_results
+
 def subset_for_communication(adata: AnnData,
                             senchat_output_key: str,
                             pval_threshold: float = None,
