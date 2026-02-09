@@ -21,7 +21,7 @@ extensions = [
     "sphinx_autodoc_typehints",
 ]
 
-html_theme = "sphinx_rtd_theme"
+html_theme = "shibuya"
 
 myst_enable_extensions = [
     "colon_fence",
