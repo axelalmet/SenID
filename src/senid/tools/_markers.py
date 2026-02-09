@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import numpy as np
 import scanpy as sc
 from anndata import AnnData
 import pandas as pd
+from pandas import DataFrame
 from itertools import product
 from scipy.sparse import vstack, csr_matrix
 from scipy.stats import mannwhitneyu
@@ -11,9 +14,9 @@ from typing import Dict, Literal, Optional, Sequence, Union, Callable, List
 
 def score_marker_genes(adata: AnnData,
                         group_label: str,
-                        output_key: str = 'SenD_marker_scores',
+                        output_key: str = 'SenID_marker_scores',
                         comparison: str = 'pairwise',
-                        return_df: bool = False) -> pd.DataFrame | None:
+                        return_df: bool = False) -> DataFrame | None:
     """
     """
 

@@ -169,6 +169,8 @@ def senchat(adata: AnnData,
 
         downstream_tfs = downstream_info['tf']
         pathway = downstream_info['pathway_name']
+        pathway_type = downstream_info['pathway_type']
+        is_neurotransmitter = downstream_info['is_neurotransmitter']
 
         return calculate_interaction_scores_for_lr_pair(adata,
                                                         ligand=lig_list,

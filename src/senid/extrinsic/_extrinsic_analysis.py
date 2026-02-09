@@ -1,4 +1,4 @@
-from typing import Literal, Sequence
+from typing import Literal, Sequence, Optional, List
 from anndata import AnnData
 import pandas as pd
 import os
@@ -8,24 +8,38 @@ import pingouin as pg
 
 def constrain_senchat_interactions(adata:  AnnData,
                                    senchat_output_key: str,
-                                   implausible_interactions: dict) -> None:
+                                   implausible_interactions: dict = None,
+                                   pathway_types: Optional[List[str]] = None) -> None:
 
     if senchat_output_key not in adata.uns:
         raise ValueError(f"Key '{senchat_output_key}' not found in adata.uns. Please run SenChat first.")
 
-
+    if implausible_interactions is None and pathway_types is None:
+        raise ValueError("At least one of 'implausible_interactions' or 'pathway_types' must be provided.")
+    
+    allowed_pathway_types = ['Secreted Signaling', 'Cell-Cell Contact', 'ECM-Receptor', 'Non-protein Signaling']
+    if any([pathway_type not in allowed_pathway_types for pathway_type in pathway_types]):
+        raise ValueError(f"Invalid pathway type found in {pathway_types}. Please use one of the following: {allowed_pathway_types}.")
+    
     senchat_results = adata.uns[senchat_output_key]
     masks = []
 
-    for sender, implausible_receivers in implausible_interactions.items():
+    if implausible_interactions:
+        for sender, implausible_receivers in implausible_interactions.items():
 
-        mask = ~( (senchat_results['sender'] == sender) & (senchat_results['receiver'].isin(implausible_receivers)) )
-        masks.append(mask)
+            interactions_to_avoid = (senchat_results['sender'] == sender) & (senchat_results['receiver'].isin(implausible_receivers))
 
-    combined_mask = np.logical_and.reduce(masks) if masks else None
+            if pathway_types:
+                interactions_to_avoid &= (senchat_results['pathway_type'].isin(pathway_types))
 
-    constrained_results = senchat_results[combined_mask] if combined_mask is not None else senchat_results
+            masks.append(~interactions_to_avoid)
 
+        combined_mask = np.logical_and.reduce(masks) if masks else None
+
+        constrained_results = senchat_results[combined_mask] if combined_mask is not None else senchat_results
+    else: # Should be just paathway_types
+        constrained_results = senchat_results[senchat_results['pathway_type'].isin(pathway_types)]
+        
     adata.uns[f'{senchat_output_key}_constrained'] = constrained_results
 
 def subset_for_communication(adata: AnnData,
@@ -56,12 +70,18 @@ def subset_for_communication(adata: AnnData,
     if pval_threshold is not None:
         senchat_output = senchat_output[senchat_output['pval'] < pval_threshold]
 
-    senchat_ligs = list({gene for rec in senchat_output['ligand'].unique() for gene in rec.split('+')})
-    senchat_recs = list({gene for rec in senchat_output['receptor'].unique() for gene in rec.split('+')})
-
     if subset_sasp:
-        senchat_ligs = [lig for lig in senchat_ligs if lig in sasp_genes]
-        senchat_recs = [rec for rec in senchat_recs if rec in sasp_genes]
+
+        interactions_with_sasp_genes = senchat_output[senchat_output['ligand'].str.split('+').apply(lambda genes: any(gene in sasp_genes for gene in genes)) |
+                                                 senchat_output['receptor'].str.split('+').apply(lambda genes: any(gene in sasp_genes for gene in genes))]
+
+        senchat_ligs = list({gene for rec in interactions_with_sasp_genes['ligand'].unique() for gene in rec.split('+')})
+        senchat_recs = list({gene for rec in interactions_with_sasp_genes['receptor'].unique() for gene in rec.split('+')})
+
+    else:
+
+        senchat_ligs = list({gene for rec in senchat_output['ligand'].unique() for gene in rec.split('+')})
+        senchat_recs = list({gene for rec in senchat_output['receptor'].unique() for gene in rec.split('+')})
 
     ccc_genes = list(set(senchat_ligs + senchat_recs))
 
@@ -71,7 +91,7 @@ def subset_for_communication(adata: AnnData,
     adata_ccc = adata_ccc[:, adata_ccc.X.sum(0) != 0]  
     adata_ccc = adata_ccc[adata_ccc.X.sum(1) != 0]
 
-    print(f'Removed { adata.n_obs - adata_ccc.n_obs} cells with zero SASP counts.')
+    print(f'Removed {adata.n_obs - adata_ccc.n_obs} cells with zero SASP counts.')
     print(f'Removed {len(ccc_genes)- adata_ccc.n_vars} genes from the initial SASP gene set.')
     print(f'SASP genes in the final dataset: {", ".join(ccc_genes)}')
 
