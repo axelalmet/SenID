@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "SenID"
+name = "senid"
 version = "0.1.1"
 description = "A package to identify cell-intrinsic and cell-exrinsic features of cellular senescence and senescence-driven communication."
 authors = ["Axel A. Almet"]
@@ -33,8 +33,6 @@ deptry = "^0.23.0"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-
-
 [tool.poetry.group.docs.dependencies]
 sphinx = "^8.0.0"
 myst-parser = "^4.0.0"
@@ -42,3 +40,7 @@ sphinx-autodoc-typehints = "^2.0.0"
 sphinx-rtd-theme = "^3.0.0"
 furo = "^2025.12.19"
 shibuya = "^2026.1.9"
+
+[tool.poetry.urls]
+"Documentation" = "https://senid.readthedocs.io"
+"Repository" = "https://github.com/axelalmet/SenID"
