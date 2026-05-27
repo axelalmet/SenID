@@ -1,7 +1,5 @@
 # Extrinsic communication analysis with SenID
-# Intrinsic analysis with SenID
-
-This tutorial demonstrates how to identify intrinsic senescence-associated transcriptional dynamics using Monod inference within SenID.
+This tutorial demonstrates how to identify extrinsic senescence-associated patterns using SenID.
 
 We use scRNA-seq of damaged lung tissue from 18-month-old mice, originally generated in [Reyes et al. (2022)](https://doi.org/10.1126/science.abf3326). In this study, senescent cells were labelled using GFP markers of p16^INK4a^, a common senescence marker. The authors then performed FACS prior to sequencing to generate GFP+ and GFP- scRNA-seq datasetes.
 
