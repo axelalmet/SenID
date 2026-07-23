@@ -9,8 +9,13 @@ __all__ = [
     "__version__",
 ]
 
-# Keep this manual or wire it later via importlib.metadata
-__version__ = "0.1.1"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("senid")
+except PackageNotFoundError:
+    # Allows imports directly from an uninstalled source checkout.
+    __version__ = "0+unknown"
 
 def __getattr__(name: str):
     if name in {"intrinsic", "extrinsic", "preprocessing", "plotting", "tools", "spatial"}:
