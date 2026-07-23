@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "senid"
-version = "0.1.1"
-description = "A package to identify cell-intrinsic and cell-exrinsic features of cellular senescence and senescence-driven communication."
+version = "0.1.2"
+description = "A package to identify cell-intrinsic and cell-extrinsic features of cellular senescence and senescence-driven communication."
 authors = ["Axel A. Almet"]
 license = "MIT License"
 readme = "README.md"
@@ -12,18 +12,22 @@ include = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.10, <3.11"
+python = ">=3.10,<3.11"
+anndata = ">=0.11.0,<0.12.0"
+matplotlib = ">=3.8.0,<4.0.0"
 scanpy = "^1.11.0"
 joblib = "^1.4.2"
 tqdm = "^4.67.1"
-numpy = "^1.2.0"
+numpy = ">=1.26.0,<2.0.0"
 pandas = "^2.2.3"
 scipy = "^1.15.2"
 monod = "^0.2.9.0"
 cnmf = "^1.7.0"
-commot = "^0.0.3"
+commot = "0.0.3"
+karateclub = "1.2.2"
+pygsp = ">=0.6.0,<0.7.0"
 pingouin = "^0.5.5"
-squidpy = "^1.6.5"
+squidpy = ">=1.6.5,<1.7.0"
 
 
 [tool.poetry.group.dev.dependencies]
