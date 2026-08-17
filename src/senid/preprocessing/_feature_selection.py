@@ -54,7 +54,7 @@ def binomial_deviance_selection(adata: AnnData,
     batch_keys = adata.obs[batch_key].values if batch_key is not None else None
 
     # Calculate the size factors as the row sums
-    size_factors = counts.sum(1).A1
+    size_factors = counts.sum(1).A1.astype(float)
 
     binomial_deviances = calculate_binomial_deviance_batch(counts, size_factors, batch_keys)
     adata.var[deviance_key] = np.nan_to_num(binomial_deviances, nan=0) # The NaN binomial deviances shouldn't matter
@@ -65,55 +65,83 @@ def binomial_deviance_selection(adata: AnnData,
     mask[idx] = True
     adata.var[highly_variable_key] = mask
 
+def calculate_binomial_deviance_batch(
+    counts: csr_matrix,
+    size_factors: np.ndarray,
+    batch_keys: Optional[np.ndarray] = None,
+) -> np.ndarray:
 
-def calculate_binomial_deviance_batch(counts: csr_matrix,
-                                      size_factors: np.ndarray,
-                                      batch_keys: Optional[np.ndarray] = None,
-                                      ) -> np.ndarray:
-    
     if batch_keys is not None:
         batches = np.unique(batch_keys)
-        n_batches = len(np.unique(batch_keys))
-        binomial_deviances_per_batch = np.zeros((counts.shape[1], n_batches))
+        n_batches = len(batches)
+
+        binomial_deviances_per_batch = np.zeros(
+            (counts.shape[1], n_batches)
+        )
 
         for i, batch in enumerate(batches):
             batch_mask = batch_keys == batch
+
             counts_batch = counts[batch_mask, :]
             size_factors_batch = size_factors[batch_mask]
-            binomial_deviances_batch = calculate_deviance(counts_batch, size_factors_batch)
-            binomial_deviances_per_batch[:, i] = binomial_deviances_batch
 
-            binomial_deviances = binomial_deviances_per_batch.sum(1)
+            binomial_deviances_per_batch[:, i] = (
+                calculate_deviance(
+                    counts_batch,
+                    size_factors_batch,
+                )
+            )
 
-            return binomial_deviances
-    else:
-        return calculate_deviance(counts, size_factors)
+        # AFTER all batches have been processed
+        return binomial_deviances_per_batch.sum(axis=1)
 
-def calculate_deviance(counts: csr_matrix,
-                        size_factors: np.ndarray,
-                        ) -> np.ndarray:
-    """ Calculate the binomial deviance from the counts and size factors.
-    Parameters
-    ----------
-    counts : csr_matrix
-        The UMI counts matrix. Should be cells x genes.
-    size_factors : np.ndarray
-        The size factors, which, in this case, are just the total UMI counts per cell.
+    return calculate_deviance(counts, size_factors)
 
-    Returns
-    -------
-    deviance: np.ndarray
-        The binomial deviance values for each gene.
-    """
-    LP = L1P = diags(size_factors**(-1)) @ counts
-    LP.data = np.log(LP.data)  # log transform nonzero elements only
-    L1P.data = np.log1p(-L1P.data)  # -Inf if only a single gene nonzero in a cell
-    ll_sat = (counts.multiply(LP - L1P) + diags(size_factors) @ L1P).sum(axis=0).A1
+def calculate_deviance(
+    counts: csr_matrix,
+    size_factors: np.ndarray,
+) -> np.ndarray:
+    """Calculate binomial deviance for each gene."""
+
+    # Ensure floating-point arithmetic
+    size_factors = np.asarray(size_factors, dtype=float)
+
+    if np.any(size_factors <= 0):
+        raise ValueError(
+            "All cells must have a positive total UMI count."
+        )
+
+    # P_ij = Y_ij / n_i
+    P = diags(1.0 / size_factors) @ counts
+
+    # These MUST be separate copies
+    LP = P.copy()
+    L1P = P.copy()
+
+    # Transform non-zero sparse elements
+    LP.data = np.log(LP.data)
+    L1P.data = np.log1p(-L1P.data)
+
+    # Saturated log-likelihood
+    ll_sat = (
+        counts.multiply(LP - L1P)
+        + diags(size_factors) @ L1P
+    ).sum(axis=0).A1
+
+    # Null model
     sz_sum = size_factors.sum()
     feature_sums = counts.sum(axis=0).A1
     p = feature_sums / sz_sum
-    lp = np.log(p) 
-    l1p = np.log1p(-p)
-    ll_null = feature_sums * (lp - l1p) + sz_sum * l1p
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        lp = np.log(p)
+        l1p = np.log1p(-p)
+
+        ll_null = (
+            feature_sums * (lp - l1p)
+            + sz_sum * l1p
+        )
+
     deviance = 2.0 * (ll_sat - ll_null)
-    return deviance
+
+    return np.nan_to_num(deviance, nan=0.0)
