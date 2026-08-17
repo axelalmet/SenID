@@ -44,7 +44,7 @@ SenChat calculates ligand-receptor interaction scores between sender and receive
 
 ```python
 
-sid.tl.calculate_interaction_scores(
+sid.et.senchat(
     adata,
     sender_label="predictions_scanvi",
     receiver_label="predictions_scanvi",
